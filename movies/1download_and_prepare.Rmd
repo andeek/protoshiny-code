@@ -1,0 +1,102 @@
+---
+title: "Movies Data Download and Preparation"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Download
+
+We download the MovieLens 25M Dataset from here https://grouplens.org/datasets/movielens/25m/.  The paper to cite for this data is here: http://files.grouplens.org/papers/harper-tiis2015.pdf
+
+```{r, eval = FALSE}
+download.file("http://files.grouplens.org/datasets/movielens/ml-25m.zip",
+              destfile = "ml-25m.zip")
+unzip("ml-25m.zip")
+```
+Let's remove the files that pertain to actions of specific users since we will not need them here.  We'll be using the "genomes" which were learned from this user-level data.
+
+```{r, eval = FALSE}
+system("rm ml-25m/ratings.csv ml-25m/tags.csv")
+```
+
+# Look at data
+
+```{r}
+library(tidyverse)
+gs <- read_csv("ml-25m/genome-scores.csv")
+gt <- read_csv("ml-25m/genome-tags.csv")
+mo <- read_csv("ml-25m/movies.csv")
+```
+
+In this paper, http://files.grouplens.org/papers/tag_genome.pdf, the authors describe the Tag Genome, a vector space embedding of movies.  Each dimension of this vector space gives the relevance score of this movie to a particular tag.  Tagging of movies is done by users, but the idea of the tag genome is to get continuous relevance scores from this raw tagging data.
+
+The data frame `gs` gives for each movie-tag pair, how relevant that movie is to that tag.  For example, here are the five most relevant tags for the movie Groundhog Day: 
+```{r}
+groundhog_id <- mo %>% 
+  filter(str_detect(title, "Groundhog")) %>% 
+  pull(movieId)
+gs %>% 
+  filter(movieId == groundhog_id) %>% 
+  top_n(5, relevance) %>% 
+  arrange(desc(relevance)) %>% 
+  left_join(gt, by = "tagId") %>% 
+  select(tag, relevance)
+```
+
+# Prepare
+
+As expected, every movie has the same number of tag relevance scores:
+```{r}
+gs %>% 
+  count(movieId) %>% 
+  pull(n) %>% 
+  range()
+```
+
+Let's make this into a dense matrix, with movies as rows and tags as columns:
+```{r}
+mid <- unique(gs$movieId)
+tid <- unique(gs$tagId)
+stopifnot(gs$movieId == rep(mid, each = length(tid)))
+stopifnot(gs$tagId == rep(tid, times = length(mid)))
+x <- matrix(gs$relevance, nrow = length(mid), byrow = TRUE)
+rownames(x) <- mid
+colnames(x) <- tid
+movie_info <- tibble(movieId = mid) %>% 
+  inner_join(mo, by = "movieId")
+stopifnot(length(mid) == nrow(movie_info))
+rownames(x) <- movie_info$title
+tag_info <- tibble(tagId = tid) %>% 
+  inner_join(gt, by = "tagId")
+stopifnot(tid == tag_info$tagId)
+colnames(x) <- tag_info$tag
+```
+
+There are `r nrow(x)` movies and `r ncol(x)` tags.
+
+Let's check that we did this correctly:
+```{r}
+x[rownames(x) %>% str_which("Groundhog"),] %>% sort(decreasing = TRUE) %>% .[1:5]
+x[rownames(x) %>% str_which("Willy Wonka"),] %>% sort(decreasing = TRUE) %>% .[1:5]
+```
+Looks like we did!
+
+# Protoclust
+
+Let's compute the pairwise correlations between all movies:
+
+```{r}
+system.time({movie_cor <- cor(t(x))})
+d <- as.dist(1 - movie_cor)
+rm(movie_cor)
+```
+
+And now let's run protoclust:
+
+```{r}
+library(protoclust)
+system.time({hc <- protoclust(d)})
+save(hc, movie_info, file = "movies_hc.Rdata")
+```
+

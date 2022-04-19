@@ -19,6 +19,7 @@
 
 # RStudio files
 .Rproj.user/
+protoshiny-paper-code.Rproj
 
 # produced vignettes
 vignettes/*.html
