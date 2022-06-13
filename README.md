@@ -1,4 +1,4 @@
-# protoshiny-paper-code
+# protoshiny-code
 
 Code appendix to reproduce examples in the paper "Interactive Exploration of Large Dendrograms with Prototypes" by Andee Kaplan and Jacob Bien.
 
